@@ -31,12 +31,12 @@ jobs:
             bundles: nsis
             artifact_glob: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
           - name: macos-x64
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
             bundles: dmg
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macos-arm64
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
             bundles: dmg
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
@@ -59,7 +59,14 @@ jobs:
       - name: Install JS Dependencies
         run: npm ci
 
-      - name: Build Tauri Bundle
+      - name: Build Tauri Bundle (Windows)
+        if: ${{ !contains(matrix.target, 'apple-darwin') }}
+        run: npm run tauri:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Build Tauri Bundle (macOS, ad-hoc signed)
+        if: ${{ contains(matrix.target, 'apple-darwin') }}
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
         run: npm run tauri:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Upload Bundle Artifact

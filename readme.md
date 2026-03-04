@@ -5,6 +5,8 @@ A lightweight cross-platform desktop overlay for `grok.com`, rewritten with **Ta
 ## Features
 
 - Dedicated Grok window (`https://grok.com`)
+- Frameless overlay style with custom top bar and one close button
+- macOS runs in accessory mode (no persistent Dock icon; use tray + shortcut)
 - Global show/hide shortcut
   - macOS default: `Alt+Space`
   - Windows default: `Ctrl+Alt+G`
@@ -62,16 +64,27 @@ GitHub Actions workflow: `.github/workflows/release.yml`
   - Windows ARM64 (`aarch64-pc-windows-msvc`)
   - macOS x64 (`x86_64-apple-darwin`)
   - macOS ARM64 (`aarch64-apple-darwin`)
+- Runners:
+  - Windows: `windows-latest`
+  - macOS Intel: `macos-15-intel`
+  - macOS Apple Silicon: `macos-15`
 - Output:
   - Windows: NSIS installer (`.exe`)
   - macOS: DMG (`.dmg`)
 - Publish: all artifacts are attached automatically to the GitHub Release for that tag.
+- macOS CI build uses ad-hoc signing (`APPLE_SIGNING_IDENTITY="-"`) to avoid unsigned-app corruption warnings.
 
 Create a release build by pushing a tag:
 
 ```bash
 git tag v1.0.1
 git push origin v1.0.1
+```
+
+If macOS still shows "App is damaged":
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Grok Overlay.app"
 ```
 
 ## Project Layout

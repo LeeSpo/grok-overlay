@@ -1,11 +1,19 @@
-﻿use std::fs::{self, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use objc2::{runtime::AnyObject, sel, ClassType};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSButton, NSWindow};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{ns_string, MainThreadMarker, NSPoint, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{
     AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
@@ -19,6 +27,88 @@ const SETTINGS_WINDOW_LABEL: &str = "settings";
 const SETTINGS_FILE_NAME: &str = "settings.json";
 const STARTUP_LOG_FILE_NAME: &str = "startup.log";
 const GROK_URL: &str = "https://grok.com?referrer=grok-overlay-tauri";
+const MAIN_WINDOW_CHROME_SCRIPT: &str = r#"
+(() => {
+  const install = () => {
+    if (window.__grokOverlayChromeInstalled) {
+      return;
+    }
+    window.__grokOverlayChromeInstalled = true;
+
+    const topHeight = 34;
+    const style = document.createElement('style');
+    style.id = 'grok-overlay-custom-chrome-style';
+    style.textContent = `
+      #grok-overlay-custom-chrome {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: ${topHeight}px;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(6px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        box-sizing: border-box;
+        -webkit-app-region: drag;
+      }
+      #grok-overlay-close-btn {
+        width: 20px;
+        height: 20px;
+        border: 0;
+        border-radius: 999px;
+        font-size: 14px;
+        line-height: 20px;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.22);
+        cursor: pointer;
+        padding: 0;
+        -webkit-app-region: no-drag;
+      }
+      #grok-overlay-close-btn:hover {
+        background: rgba(255, 255, 255, 0.35);
+      }
+      html,
+      body {
+        margin-top: ${topHeight}px !important;
+      }
+    `;
+    if (document.head) {
+      document.head.appendChild(style);
+    }
+
+    const bar = document.createElement('div');
+    bar.id = 'grok-overlay-custom-chrome';
+
+    const closeButton = document.createElement('button');
+    closeButton.id = 'grok-overlay-close-btn';
+    closeButton.type = 'button';
+    closeButton.title = 'Hide';
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', async () => {
+      try {
+        if (window.__TAURI__?.core?.invoke) {
+          await window.__TAURI__.core.invoke('hide_main_window_cmd');
+        }
+      } catch (_) {}
+    });
+
+    bar.appendChild(closeButton);
+    const root = document.body || document.documentElement;
+    root.prepend(bar);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', install, { once: true });
+  } else {
+    install();
+  }
+})();
+"#;
 
 #[cfg(target_os = "macos")]
 const DEFAULT_SHORTCUT: &str = "Alt+Space";
@@ -91,7 +181,11 @@ fn persist_settings<R: Runtime>(app: &AppHandle<R>, settings: &Settings) -> Resu
 }
 
 fn append_startup_log<R: Runtime>(app: &AppHandle<R>, message: &str) {
-    let log_dir = match app.path().app_log_dir().or_else(|_| app.path().app_config_dir()) {
+    let log_dir = match app
+        .path()
+        .app_log_dir()
+        .or_else(|_| app.path().app_config_dir())
+    {
         Ok(path) => path,
         Err(_) => return,
     };
@@ -113,6 +207,47 @@ fn hide_on_close<R: Runtime>(window: &WebviewWindow<R>) {
             let _ = window_for_handler.hide();
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+fn install_macos_close_button<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    const CLOSE_BUTTON_LEFT: f64 = 12.0;
+    const CLOSE_BUTTON_TOP: f64 = 10.0;
+    const CLOSE_BUTTON_SIZE: f64 = 20.0;
+
+    window
+        .with_webview(|webview| unsafe {
+            let ns_window: &NSWindow = &*webview.ns_window().cast();
+            let Some(content_view) = ns_window.contentView() else {
+                return;
+            };
+
+            let frame = content_view.frame();
+            let y = (frame.size.height - CLOSE_BUTTON_TOP - CLOSE_BUTTON_SIZE).max(0.0);
+            let button_frame = NSRect::new(
+                NSPoint::new(CLOSE_BUTTON_LEFT, y),
+                NSSize::new(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE),
+            );
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let close_target = Some(&*(ns_window as *const NSWindow as *const AnyObject));
+
+            let close_button = NSButton::buttonWithTitle_target_action(
+                ns_string!("x"),
+                close_target,
+                Some(sel!(performClose:)),
+                mtm,
+            );
+            close_button.setBordered(false);
+            close_button.setFrame(button_frame);
+            close_button.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewMinYMargin
+                    | NSAutoresizingMaskOptions::ViewMaxXMargin,
+            );
+            content_view.addSubview(close_button.as_super().as_super());
+        })
+        .map_err(|e| format!("Unable to install macOS close button: {e}"))
 }
 
 fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<R>, String> {
@@ -374,6 +509,11 @@ fn open_main_home_cmd(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .on_page_load(|window, _payload| {
+            if window.label() == MAIN_WINDOW_LABEL {
+                let _ = window.eval(MAIN_WINDOW_CHROME_SCRIPT);
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -383,6 +523,11 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             let mut settings = load_settings(&app_handle);
+
+            #[cfg(target_os = "macos")]
+            if let Err(error) = app_handle.set_activation_policy(ActivationPolicy::Accessory) {
+                append_startup_log(&app_handle, &format!("Set macOS activation policy failed: {error}"));
+            }
 
             if register_shortcut(&app_handle, &settings.shortcut).is_err() {
                 append_startup_log(
@@ -423,6 +568,10 @@ pub fn run() {
 
             if let Some(main_window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
                 hide_on_close(&main_window);
+                #[cfg(target_os = "macos")]
+                if let Err(error) = install_macos_close_button(&main_window) {
+                    append_startup_log(&app_handle, &format!("Install macOS close button failed: {error}"));
+                }
             }
             if let Some(settings_window) = app_handle.get_webview_window(SETTINGS_WINDOW_LABEL) {
                 hide_on_close(&settings_window);
@@ -445,4 +594,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
