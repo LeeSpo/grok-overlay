@@ -1,73 +1,94 @@
-<p align="center">
-  <h1 align="center"><code>macos-grok-overlay</code></h1>
-</p>
+# grok-overlay (Tauri 2 Rewrite)
 
-<p align="center">
-A simple macOS overlay application for pinning <code>grok.com</code> to a dedicated window and key command <code>option+space</code>.
-</p>
+A lightweight cross-platform desktop overlay for `grok.com`, rewritten with **Tauri 2** for **macOS + Windows**.
 
-![Launcher Sample](images/macos-grok-overlay.jpeg)
+## Features
 
+- Dedicated Grok window (`https://grok.com`)
+- Global show/hide shortcut
+  - macOS default: `Alt+Space`
+  - Windows default: `Ctrl+Alt+G`
+- Tray icon with quick actions:
+  - Show / Hide Grok
+  - Go to Grok home
+  - Open settings
+  - Toggle launch at login
+  - Quit
+- Settings window:
+  - Record and update global shortcut (no manual string typing needed)
+  - Toggle always-on-top
+  - Toggle launch at login
+- Local settings persistence (`settings.json` in AppData app config directory)
 
-## Installation:
+## Tech Stack
 
-  The easiest approach is to download and execute the DMG installer (by clicking the image below) to place the program into your Applications folder.
+- Tauri 2 (Rust backend + native WebView)
+- `tauri-plugin-global-shortcut`
+- `tauri-plugin-autostart`
+- `tauri-plugin-opener`
+- Plain HTML/CSS/JS settings UI
 
-**Compatibility:** The DMG launcher is built as a universal binary for `arm64` + `x86_64` (thanks to [`sumitduster-kiuzan`](https://github.com/tchlux/macos-grok-overlay/pull/22)!), so it should run on both modern M-series laptops and older Intel-based Macs (2015/2017 era) provided they are on a supported version of macOS. When creating your own build you can force a specific target by exporting `PY2APP_ARCH` (e.g., `PY2APP_ARCH=x86_64 ./dmg-builder/build.sh`).
+## Requirements
 
-[![DMG Installer](images/dmg-installer-preview.png)](https://github.com/tchlux/macos-grok-overlay/releases/download/0.0.17/macos-grok-overlay.dmg)
+- Node.js 20+
+- Rust stable (with Cargo)
+- Platform prerequisites for Tauri desktop development:
+  - macOS: Xcode Command Line Tools
+  - Windows: MSVC Build Tools + WebView2 runtime
 
-  Otherwise, you can install the latest stable release from a Terminal with:
-
-```bash
-python3 -m pip install macos-grok-overlay
-```
-
-  Once you've installed the package, you can enable it to be automatically launched at startup with:
-
-```bash
-macos-grok-overlay --install-startup
-```
-
-  You will get a request like this to enable Accessibility the first time this launches.
-
-![Accessibility Request](images/macos-grok-overlay-accessibility.png)
-
-  The Accessibility access is required for the background task to listen for the `Option+Space` keyboard command. But please don't just take my word for it, look at the [listener code yourself](macos_grok_overlay/listener.py) and see. ;)
-
-  Within a few seconds of approving Accessibility access, you should see a little icon like this appear along the top of your screen.
-
-![Menu Sample](images/macos-grok-overlay-menu.png)
-
-  And you're done! Now this should launch automatically and constantly run in the background. If you ever decide you do not want it, see the uninstall instructions below.
-
-
-## Usage
-
-  Once the application is launched, it should immediately open a window dedicated to `grok.com`. You'll need to log in there, but you should only need to do that once. After installing, pressing `Option + Space` while the window is open will hide it, and pressing it again at any point will reveal it and pin it as the top-most window overlay on top of other applications. This enables quick and easy access to Grok on macOS.
-
-<video controls loop autoplay>
-  <source src="https://github.com/tchlux/macos-grok-overlay/raw/main/images/macos-grok-overlay.mp4" type="video/mp4">
-</video>
-
-  There is a dropdown menu with basic options that shows when you click the menubar icon. Personally I find that using `Option + Space` to summon and dismiss the dialogue as needed is the most convenient.
-
-<video controls loop autoplay>
-  <source src="https://github.com/tchlux/macos-grok-overlay/raw/main/images/macos-grok-overlay-menu.mp4" type="video/mp4">
-</video>
-
-  If you decide you want to uninstall the application, you can do that by clicking the option in the menubar dropdown, or from the command line with:
+## Development
 
 ```bash
-macos-grok-overlay --uninstall-startup
+npm install
+npm run tauri:dev
 ```
 
+## Build
 
-## How it works
+```bash
+npm install
+npm run tauri:build
+```
 
-  This is a very thin `pyobjc` application written to contain a web view of the current production Grok website. Most of the logic contained in this small application is for stylistic purposes, making the overlay shaped correctly, resizeable, draggable, and able to be summoned anywhere easily with a single (modifiable) keyboard command. There's also a few steps needed to listen specifically for the `Option + Space` keyboard command, which requires Accessibility access to macOS.
+Build outputs are created by Tauri under `src-tauri/target`.
 
+## CI Release
 
-## Final thoughts
+GitHub Actions workflow: `.github/workflows/release.yml`
 
-  This was a small fun weekend project, and is not a product of the xAI team nor is it formally affiliated with them. Please file issues and I'll be happy to adjust, but I also highly recommend you look at the source code yourself if you want to change something. It's a small and simple project that fits in less [than 10K tokens](http://gitingest.com/tchlux/macos-grok-overlay), Grok (or similar) could easily help you modify it for your own purposes.
+- Trigger: push a tag matching `v*` (example: `v1.0.1`)
+- Matrix targets:
+  - Windows x64 (`x86_64-pc-windows-msvc`)
+  - Windows ARM64 (`aarch64-pc-windows-msvc`)
+  - macOS x64 (`x86_64-apple-darwin`)
+  - macOS ARM64 (`aarch64-apple-darwin`)
+- Output:
+  - Windows: NSIS installer (`.exe`)
+  - macOS: DMG (`.dmg`)
+- Publish: all artifacts are attached automatically to the GitHub Release for that tag.
+
+Create a release build by pushing a tag:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+## Project Layout
+
+```text
+.
++-- web/                     # Local settings page assets
+|   +-- settings.html
+|   +-- settings.js
+|   +-- styles.css
++-- src-tauri/
+|   +-- src/
+|   |   +-- lib.rs          # App logic (tray/shortcut/settings/autostart)
+|   |   +-- main.rs
+|   +-- capabilities/
+|   +-- icons/
+|   +-- Cargo.toml
+|   +-- tauri.conf.json
++-- package.json
+```

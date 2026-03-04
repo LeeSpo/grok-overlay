@@ -9,3 +9,13 @@ env
 config.sh
 __pycache__
 .DS_Store
+node_modules
+src-tauri/target
+src-tauri/gen
+*.rs.bk
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.idea
+.vscode/*
+!.vscode/extensions.json

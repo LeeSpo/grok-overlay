@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grok Overlay Settings</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <h1>Grok Overlay</h1>
+      <p class="sub">Cross-platform settings (macOS + Windows)</p>
+
+      <label class="field">
+        <span>Global Shortcut</span>
+        <div class="shortcut-row">
+          <input id="shortcut" type="text" placeholder="Ctrl+Alt+G" readonly />
+          <button id="recordShortcut" type="button" class="secondary">Record Shortcut</button>
+        </div>
+        <small>Click "Record Shortcut", then press a combination (example: <code>Ctrl+Alt+G</code>).</small>
+      </label>
+
+      <label class="checkbox">
+        <input id="alwaysOnTop" type="checkbox" />
+        <span>Always on top</span>
+      </label>
+
+      <label class="checkbox">
+        <input id="launchAtLogin" type="checkbox" />
+        <span>Launch at login</span>
+      </label>
+
+      <div class="actions">
+        <button id="toggleMain" class="secondary">Show / Hide Overlay</button>
+        <button id="goHome" class="secondary">Go To Grok</button>
+      </div>
+
+      <div class="actions">
+        <button id="save" class="primary">Save</button>
+      </div>
+
+      <p id="status" class="status"></p>
+    </main>
+
+    <script type="module" src="settings.js"></script>
+  </body>
+</html>
