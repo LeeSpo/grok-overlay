@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      .titlebar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 10px;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .close-btn {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(80, 80, 80, 0.6);
+        color: rgba(180, 180, 180, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        outline: none;
+        transition: background 0.15s, color 0.15s;
+        -webkit-app-region: no-drag;
+      }
+      .close-btn:hover {
+        background: rgba(100, 100, 100, 0.85);
+        color: rgba(255, 255, 255, 0.9);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="titlebar" id="titlebar">
+      <button class="close-btn" id="closeBtn">
+        <svg viewBox="0 0 12 12" width="10" height="10">
+          <path d="M2.4 2.4L9.6 9.6M9.6 2.4L2.4 9.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <script>
+      var invoke = window.__TAURI__.core.invoke;
+      document.getElementById('closeBtn').addEventListener('click', function() {
+        invoke('hide_main_window_cmd');
+      });
+      document.getElementById('titlebar').addEventListener('mousedown', function(e) {
+        if (e.button !== 0 || e.target.closest('.close-btn')) return;
+        e.preventDefault();
+        invoke('start_dragging_cmd');
+      });
+    </script>
+  </body>
+</html>

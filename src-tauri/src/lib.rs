@@ -10,8 +10,8 @@ use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
 use tauri::{
-    AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, State, WebviewBuilder, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
@@ -29,6 +29,10 @@ const DEFAULT_SHORTCUT: &str = "Alt+Space";
 const DEFAULT_SHORTCUT: &str = "Ctrl+Alt+G";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DEFAULT_SHORTCUT: &str = "Alt+Space";
+
+const TITLEBAR_WEBVIEW_LABEL: &str = "titlebar";
+const CONTENT_WEBVIEW_LABEL: &str = "content";
+const TITLEBAR_HEIGHT: f64 = 36.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -146,7 +150,7 @@ fn ensure_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindo
 }
 
 fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+    let Some(window) = app.get_window(MAIN_WINDOW_LABEL) else {
         return;
     };
     let visible = window.is_visible().unwrap_or(false);
@@ -160,7 +164,7 @@ fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+    let Some(window) = app.get_window(MAIN_WINDOW_LABEL) else {
         return;
     };
     let _ = window.show();
@@ -169,14 +173,16 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
         let _ = window.hide();
     }
 }
 
 fn open_main_home<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = window.eval(&format!("window.location.replace('{GROK_URL}')"));
+    if let Some(webview) = app.get_webview(CONTENT_WEBVIEW_LABEL) {
+        let _ = webview.eval(&format!("window.location.replace('{GROK_URL}')"));
+    }
+    if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -187,7 +193,7 @@ fn set_main_always_on_top<R: Runtime>(
     app: &AppHandle<R>,
     always_on_top: bool,
 ) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+    let Some(window) = app.get_window(MAIN_WINDOW_LABEL) else {
         return Ok(());
     };
     window
@@ -380,6 +386,13 @@ fn open_main_home_cmd(app: AppHandle) {
     open_main_home(&app);
 }
 
+#[tauri::command]
+fn start_dragging_cmd(app: AppHandle) {
+    if let Some(window) = app.get_window(MAIN_WINDOW_LABEL) {
+        let _ = window.start_dragging();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -397,6 +410,62 @@ pub fn run() {
             if let Err(error) = app_handle.set_activation_policy(ActivationPolicy::Accessory) {
                 append_startup_log(&app_handle, &format!("Set macOS activation policy failed: {error}"));
             }
+
+            let main_window = WindowBuilder::new(&app_handle, MAIN_WINDOW_LABEL)
+                .title("")
+                .inner_size(550.0, 620.0)
+                .min_inner_size(420.0, 460.0)
+                .decorations(false)
+                .resizable(true)
+                .always_on_top(settings.always_on_top)
+                .center()
+                .build()
+                .map_err(|e| format!("Unable to create main window: {e}"))?;
+
+            main_window
+                .add_child(
+                    WebviewBuilder::new(
+                        CONTENT_WEBVIEW_LABEL,
+                        WebviewUrl::External(GROK_URL.parse().unwrap()),
+                    ),
+                    LogicalPosition::new(0.0, TITLEBAR_HEIGHT),
+                    LogicalSize::new(550.0, 620.0 - TITLEBAR_HEIGHT),
+                )
+                .map_err(|e| format!("Unable to create content webview: {e}"))?;
+
+            main_window
+                .add_child(
+                    WebviewBuilder::new(
+                        TITLEBAR_WEBVIEW_LABEL,
+                        WebviewUrl::App("titlebar.html".into()),
+                    )
+                    .transparent(true),
+                    LogicalPosition::new(0.0, 0.0),
+                    LogicalSize::new(550.0, TITLEBAR_HEIGHT),
+                )
+                .map_err(|e| format!("Unable to create titlebar webview: {e}"))?;
+
+            let window_for_close = main_window.clone();
+            let window_for_scale = main_window.clone();
+            let app_for_resize = app_handle.clone();
+            main_window.on_window_event(move |event| match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window_for_close.hide();
+                }
+                WindowEvent::Resized(size) => {
+                    let scale = window_for_scale.scale_factor().unwrap_or(1.0);
+                    let lw = size.width as f64 / scale;
+                    let lh = size.height as f64 / scale;
+                    if let Some(tb) = app_for_resize.get_webview(TITLEBAR_WEBVIEW_LABEL) {
+                        let _ = tb.set_size(LogicalSize::new(lw, TITLEBAR_HEIGHT));
+                    }
+                    if let Some(ct) = app_for_resize.get_webview(CONTENT_WEBVIEW_LABEL) {
+                        let _ = ct.set_size(LogicalSize::new(lw, lh - TITLEBAR_HEIGHT));
+                    }
+                }
+                _ => {}
+            });
 
             if register_shortcut(&app_handle, &settings.shortcut).is_err() {
                 append_startup_log(
@@ -418,9 +487,6 @@ pub fn run() {
                 }
             }
 
-            if let Err(error) = set_main_always_on_top(&app_handle, settings.always_on_top) {
-                append_startup_log(&app_handle, &format!("Always-on-top apply failed: {error}"));
-            }
             if let Err(error) = set_launch_at_login(&app_handle, settings.launch_at_login) {
                 append_startup_log(&app_handle, &format!("Autostart apply failed: {error}"));
             }
@@ -435,10 +501,6 @@ pub fn run() {
                 append_startup_log(&app_handle, &format!("Persist settings failed: {error}"));
             }
 
-            if let Some(main_window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
-                hide_on_close(&main_window);
-
-            }
             if let Some(settings_window) = app_handle.get_webview_window(SETTINGS_WINDOW_LABEL) {
                 hide_on_close(&settings_window);
             }
@@ -455,7 +517,8 @@ pub fn run() {
             show_main_window_cmd,
             hide_main_window_cmd,
             open_settings_window_cmd,
-            open_main_home_cmd
+            open_main_home_cmd,
+            start_dragging_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
