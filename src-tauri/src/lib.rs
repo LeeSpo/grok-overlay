@@ -438,8 +438,7 @@ pub fn run() {
                     WebviewBuilder::new(
                         TITLEBAR_WEBVIEW_LABEL,
                         WebviewUrl::App("titlebar.html".into()),
-                    )
-                    .transparent(true),
+                    ),
                     LogicalPosition::new(0.0, 0.0),
                     LogicalSize::new(550.0, TITLEBAR_HEIGHT),
                 )
